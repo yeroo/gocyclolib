@@ -1,0 +1,6 @@
+*.iml
+.idea/
+.vs/
+Godeps/
+.secrets/
+tools/*.json

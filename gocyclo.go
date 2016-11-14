@@ -2,11 +2,11 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// Command gocyclo calculates the cyclomatic complexities of functions
-// in Go source code.
+// Gocyclo calculates the cyclomatic complexities of functions and
+// methods in Go source code.
 //
 // Usage:
-//      gocyclo [<flag> ...] <Go file or packages> ...
+//      gocyclo [<flag> ...] <Go file or directory> ...
 //
 // Flags:
 //      -over N   show functions with complexity > N only and
@@ -15,25 +15,26 @@
 //      -avg      show the average complexity
 //
 // The output fields for each line are:
-// <complexity> <full function name> <file:row:column>
+// <complexity> <package> <function> <file:row:column>
 package main
 
 import (
 	"flag"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io"
+	"log"
 	"os"
+	"path/filepath"
 	"sort"
-
-	"golang.org/x/tools/go/loader"
-	"golang.org/x/tools/go/ssa"
-	"golang.org/x/tools/go/ssa/ssautil"
+	"strings"
 )
 
 const usageDoc = `Calculate cyclomatic complexities of Go functions.
 Usage:
         gocyclo [flags] <Go file or directory> ...
-
 Flags:
         -over N       show functions with complexity > N only and
                       return exit code 1 if the set is non-empty
@@ -41,9 +42,8 @@ Flags:
         -avg          show the average complexity over all functions,
                       not depending on whether -over or -top are set
         -skip-godeps  skip the Godeps folder
-
 The output fields for each line are:
-<complexity> <full function name> <file:row:column>
+<complexity> <package> <function> <file:row:column>
 `
 
 func usage() {
@@ -59,88 +59,52 @@ var (
 )
 
 func main() {
-	if err := run(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
-}
-
-func run() error {
+	log.SetFlags(0)
+	log.SetPrefix("gocyclo: ")
 	flag.Usage = usage
 	flag.Parse()
 	args := flag.Args()
 	if len(args) == 0 {
-		args = []string{"."}
+		usage()
 	}
 
-	conf := loader.Config{}
-	args, err := conf.FromArgs(args, false)
-	if err != nil {
-		return err
-	}
-
-	lprog, err := conf.Load()
-	if err != nil {
-		return err
-	}
-
-	prog := ssautil.CreateProgram(lprog, ssa.NaiveForm)
-	stats := analyze(lprog, prog)
+	stats := analyze(args)
 	sort.Sort(byComplexity(stats))
 	written := writeStats(os.Stdout, stats)
 
 	if *avg {
-		fmt.Printf("Average: %.3g\n", average(stats))
+		showAverage(stats)
 	}
 
 	if *over > 0 && written > 0 {
 		os.Exit(1)
 	}
-	return nil
 }
 
-type stat struct {
-	Func       *ssa.Function
-	Complexity int
-}
-
-func (s stat) String() string {
-	pos := s.Func.Prog.Fset.Position(s.Func.Pos())
-	return fmt.Sprintf("%d %s %s", s.Complexity, s.Func.String(), pos)
-}
-
-func analyze(lprog *loader.Program, prog *ssa.Program) []stat {
+func analyze(paths []string) []stat {
 	var stats []stat
-	for _, lpkg := range lprog.InitialPackages() {
-		pkg := prog.Package(lpkg.Pkg)
-		pkg.Build()
-		for _, m := range pkg.Members {
-			if fn, ok := m.(*ssa.Function); ok {
-				stats = append(stats, stat{
-					Func:       fn,
-					Complexity: complexity(fn),
-				})
-			}
+	for _, path := range paths {
+		if isDir(path) {
+			stats = analyzeDir(path, stats)
+		} else {
+			stats = analyzeFile(path, stats)
 		}
 	}
 	return stats
 }
 
+func isDir(filename string) bool {
+	fi, err := os.Stat(filename)
+	return err == nil && fi.IsDir()
+}
 
-// complexity calculates the cyclomatic complexity of a function.
-func complexity(fn *ssa.Function) int {
-	// https://en.wikipedia.org/wiki/Cyclomatic_complexity
-	// The complexity M for a function is defined as
-	// M = E − N + 2
-	// where
-	//
-	// E = the number of edges of the graph.
-	// N = the number of nodes of the graph.
-	edges := 0
-	for _, b := range fn.Blocks {
-		edges += len(b.Succs)
+func analyzeFile(fname string, stats []stat) []stat {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, fname, nil, 0)
+	if err != nil {
+		log.Fatal(err)
 	}
-	return edges - len(fn.Blocks) + 2
+	return buildStats(f, fset, stats)
 }
 
 func analyzeDir(dirname string, stats []stat) []stat {
@@ -165,18 +129,20 @@ func isAnalyzeTarget(dirname, path string) bool {
 }
 
 func writeStats(w io.Writer, sortedStats []stat) int {
-	written := 0
 	for i, stat := range sortedStats {
 		if i == *top {
-			break
+			return i
 		}
 		if stat.Complexity <= *over {
-			break
+			return i
 		}
-		written++
 		fmt.Fprintln(w, stat)
 	}
-	return written
+	return len(sortedStats)
+}
+
+func showAverage(stats []stat) {
+	fmt.Printf("Average: %.3g\n", average(stats))
 }
 
 func average(stats []stat) float64 {
@@ -187,10 +153,84 @@ func average(stats []stat) float64 {
 	return float64(total) / float64(len(stats))
 }
 
+type stat struct {
+	PkgName    string
+	FuncName   string
+	Complexity int
+	Pos        token.Position
+}
+
+func (s stat) String() string {
+	return fmt.Sprintf("%d %s %s %s", s.Complexity, s.PkgName, s.FuncName, s.Pos)
+}
+
 type byComplexity []stat
 
 func (s byComplexity) Len() int      { return len(s) }
 func (s byComplexity) Swap(i, j int) { s[i], s[j] = s[j], s[i] }
 func (s byComplexity) Less(i, j int) bool {
 	return s[i].Complexity >= s[j].Complexity
+}
+
+func buildStats(f *ast.File, fset *token.FileSet, stats []stat) []stat {
+	for _, decl := range f.Decls {
+		if fn, ok := decl.(*ast.FuncDecl); ok {
+			stats = append(stats, stat{
+				PkgName:    f.Name.Name,
+				FuncName:   funcName(fn),
+				Complexity: complexity(fn),
+				Pos:        fset.Position(fn.Pos()),
+			})
+		}
+	}
+	return stats
+}
+
+// funcName returns the name representation of a function or method:
+// "(Type).Name" for methods or simply "Name" for functions.
+func funcName(fn *ast.FuncDecl) string {
+	if fn.Recv != nil {
+		if fn.Recv.NumFields() > 0 {
+			typ := fn.Recv.List[0].Type
+			return fmt.Sprintf("(%s).%s", recvString(typ), fn.Name)
+		}
+	}
+	return fn.Name.Name
+}
+
+// recvString returns a string representation of recv of the
+// form "T", "*T", or "BADRECV" (if not a proper receiver type).
+func recvString(recv ast.Expr) string {
+	switch t := recv.(type) {
+	case *ast.Ident:
+		return t.Name
+	case *ast.StarExpr:
+		return "*" + recvString(t.X)
+	}
+	return "BADRECV"
+}
+
+// complexity calculates the cyclomatic complexity of a function.
+func complexity(fn *ast.FuncDecl) int {
+	v := complexityVisitor{}
+	ast.Walk(&v, fn)
+	return v.Complexity
+}
+
+type complexityVisitor struct {
+	// Complexity is the cyclomatic complexity
+	Complexity int
+}
+
+// Visit implements the ast.Visitor interface.
+func (v *complexityVisitor) Visit(n ast.Node) ast.Visitor {
+	switch n := n.(type) {
+	case *ast.FuncDecl, *ast.IfStmt, *ast.ForStmt, *ast.RangeStmt, *ast.CaseClause, *ast.CommClause:
+		v.Complexity++
+	case *ast.BinaryExpr:
+		if n.Op == token.LAND || n.Op == token.LOR {
+			v.Complexity++
+		}
+	}
+	return v
 }
