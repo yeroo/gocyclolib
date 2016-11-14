@@ -41,6 +41,7 @@ Flags:
         -top N        show the top N most complex functions only
         -avg          show the average complexity over all functions,
                       not depending on whether -over or -top are set
+        -avg-only     show only avergate complexity as in -avg
         -skip-godeps  skip the Godeps folder
         -skip-vendor  skip the vendor folder
 The output fields for each line are:
@@ -56,6 +57,7 @@ var (
 	over = flag.Int("over", 0, "show functions with complexity > N only")
 	top = flag.Int("top", -1, "show the top N most complex functions only")
 	avg = flag.Bool("avg", false, "show the average complexity")
+	avgOnly = flag.Bool("avg-only", false, "show only avergate complexity as in -avg")
 	skipGodeps = flag.Bool("skip-godeps", false, "skip the Godeps folder")
 	skipVendor = flag.Bool("skip-vendor", false, "skip the vendor folder")
 )
@@ -72,10 +74,14 @@ func main() {
 
 	stats := analyze(args)
 	sort.Sort(byComplexity(stats))
-	written := writeStats(os.Stdout, stats)
-
+	var written = 0
+	if !avgOnly {
+		written = writeStats(os.Stdout, stats)
+	}
 	if *avg {
-		showAverage(stats)
+		showAverage(stats, true)
+	} else if *avgOnly{
+		showAverage(stats, false)
 	}
 
 	if *over > 0 && written > 0 {
@@ -153,8 +159,13 @@ func writeStats(w io.Writer, sortedStats []stat) int {
 	return len(sortedStats)
 }
 
-func showAverage(stats []stat) {
-	fmt.Printf("Average: %.3g\n", average(stats))
+func showAverage(stats []stat, showLabel bool) {
+	if showLabel {
+		fmt.Printf("Average: %.3g\n", average(stats))
+	} else {
+		fmt.Printf("%.3g\n", average(stats))
+	}
+
 }
 
 func average(stats []stat) float64 {
