@@ -35,11 +35,12 @@ Usage:
         gocyclo [flags] <Go file or directory> ...
 
 Flags:
-        -over N   show functions with complexity > N only and
-                  return exit code 1 if the set is non-empty
-        -top N    show the top N most complex functions only
-        -avg      show the average complexity over all functions,
-                  not depending on whether -over or -top are set
+        -over N       show functions with complexity > N only and
+                      return exit code 1 if the set is non-empty
+        -top N        show the top N most complex functions only
+        -avg          show the average complexity over all functions,
+                      not depending on whether -over or -top are set
+        -skip-godeps  skip the Godeps folder
 
 The output fields for each line are:
 <complexity> <full function name> <file:row:column>
@@ -51,9 +52,10 @@ func usage() {
 }
 
 var (
-	over = flag.Int("over", 0, "show functions with complexity > N only")
-	top  = flag.Int("top", -1, "show the top N most complex functions only")
-	avg  = flag.Bool("avg", false, "show the average complexity")
+	over       = flag.Int("over", 0, "show functions with complexity > N only")
+	top        = flag.Int("top", -1, "show the top N most complex functions only")
+	avg        = flag.Bool("avg", false, "show the average complexity")
+	skipGodeps = flag.Bool("skip-godeps", false, "skip the Godeps folder")
 )
 
 func main() {
@@ -124,6 +126,7 @@ func analyze(lprog *loader.Program, prog *ssa.Program) []stat {
 	return stats
 }
 
+
 // complexity calculates the cyclomatic complexity of a function.
 func complexity(fn *ssa.Function) int {
 	// https://en.wikipedia.org/wiki/Cyclomatic_complexity
@@ -138,6 +141,27 @@ func complexity(fn *ssa.Function) int {
 		edges += len(b.Succs)
 	}
 	return edges - len(fn.Blocks) + 2
+}
+
+func analyzeDir(dirname string, stats []stat) []stat {
+	filepath.Walk(dirname, func(path string, info os.FileInfo, err error) error {
+		if err == nil && !info.IsDir() && isAnalyzeTarget(dirname, path) {
+			stats = analyzeFile(path, stats)
+		}
+		return err
+	})
+	return stats
+}
+
+func isAnalyzeTarget(dirname, path string) bool {
+	prefix := strings.Join([]string{dirname, "Godeps"}, string(os.PathSeparator))
+	if dirname == "." {
+		prefix = "Godeps"
+	}
+	if strings.HasPrefix(path, prefix) && *skipGodeps {
+		return false
+	}
+	return strings.HasSuffix(path, ".go")
 }
 
 func writeStats(w io.Writer, sortedStats []stat) int {
