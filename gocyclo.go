@@ -75,12 +75,12 @@ func main() {
 	stats := analyze(args)
 	sort.Sort(byComplexity(stats))
 	var written = 0
-	if !avgOnly {
+	if !*avgOnly {
 		written = writeStats(os.Stdout, stats)
 	}
 	if *avg {
 		showAverage(stats, true)
-	} else if *avgOnly{
+	} else if *avgOnly {
 		showAverage(stats, false)
 	}
 
