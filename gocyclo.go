@@ -42,6 +42,7 @@ Flags:
         -avg          show the average complexity over all functions,
                       not depending on whether -over or -top are set
         -skip-godeps  skip the Godeps folder
+        -skip-vendor  skip the vendor folder
 The output fields for each line are:
 <complexity> <package> <function> <file:row:column>
 `
@@ -52,10 +53,11 @@ func usage() {
 }
 
 var (
-	over       = flag.Int("over", 0, "show functions with complexity > N only")
-	top        = flag.Int("top", -1, "show the top N most complex functions only")
-	avg        = flag.Bool("avg", false, "show the average complexity")
+	over = flag.Int("over", 0, "show functions with complexity > N only")
+	top = flag.Int("top", -1, "show the top N most complex functions only")
+	avg = flag.Bool("avg", false, "show the average complexity")
 	skipGodeps = flag.Bool("skip-godeps", false, "skip the Godeps folder")
+	skipVendor = flag.Bool("skip-vendor", false, "skip the vendor folder")
 )
 
 func main() {
@@ -109,7 +111,7 @@ func analyzeFile(fname string, stats []stat) []stat {
 
 func analyzeDir(dirname string, stats []stat) []stat {
 	filepath.Walk(dirname, func(path string, info os.FileInfo, err error) error {
-		if err == nil && !info.IsDir() && isAnalyzeTarget(dirname, path) {
+		if err == nil && !info.IsDir() && isAnalyzeTargetGodeps(dirname, path) && isAnalyzeTargetVendor(dirname, path) {
 			stats = analyzeFile(path, stats)
 		}
 		return err
@@ -117,7 +119,7 @@ func analyzeDir(dirname string, stats []stat) []stat {
 	return stats
 }
 
-func isAnalyzeTarget(dirname, path string) bool {
+func isAnalyzeTargetGodeps(dirname, path string) bool {
 	prefix := strings.Join([]string{dirname, "Godeps"}, string(os.PathSeparator))
 	if dirname == "." {
 		prefix = "Godeps"
@@ -128,6 +130,16 @@ func isAnalyzeTarget(dirname, path string) bool {
 	return strings.HasSuffix(path, ".go")
 }
 
+func isAnalyzeTargetVendor(dirname, path string) bool {
+	prefix := strings.Join([]string{dirname, "vendor"}, string(os.PathSeparator))
+	if dirname == "." {
+		prefix = "vendor"
+	}
+	if strings.HasPrefix(path, prefix) && *skipVendor {
+		return false
+	}
+	return strings.HasSuffix(path, ".go")
+}
 func writeStats(w io.Writer, sortedStats []stat) int {
 	for i, stat := range sortedStats {
 		if i == *top {
@@ -166,8 +178,12 @@ func (s stat) String() string {
 
 type byComplexity []stat
 
-func (s byComplexity) Len() int      { return len(s) }
-func (s byComplexity) Swap(i, j int) { s[i], s[j] = s[j], s[i] }
+func (s byComplexity) Len() int {
+	return len(s)
+}
+func (s byComplexity) Swap(i, j int) {
+	s[i], s[j] = s[j], s[i]
+}
 func (s byComplexity) Less(i, j int) bool {
 	return s[i].Complexity >= s[j].Complexity
 }
