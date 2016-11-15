@@ -32,9 +32,6 @@ func Average(paths []string, skipGodeps bool, skipVendor bool) float64 {
 	stats := getStats(paths, skipGodeps, skipVendor)
 	return average(stats)
 }
-func GetStats(paths []string, skipGodeps bool, skipVendor bool) {
-	return getStats(paths, skipGodeps, skipVendor)
-}
 
 func analyze(paths []string) []stat {
 	var stats []stat
@@ -77,7 +74,7 @@ func isAnalyzeTargetGodeps(dirname, path string) bool {
 	if dirname == "." {
 		prefix = "Godeps"
 	}
-	if strings.HasPrefix(path, prefix) && *skipGodepsGlobal {
+	if strings.HasPrefix(path, prefix) && skipGodepsGlobal {
 		return false
 	}
 	return strings.HasSuffix(path, ".go")
@@ -88,32 +85,11 @@ func isAnalyzeTargetVendor(dirname, path string) bool {
 	if dirname == "." {
 		prefix = "vendor"
 	}
-	if strings.HasPrefix(path, prefix) && *skipVendorGlobal {
+	if strings.HasPrefix(path, prefix) && skipVendorGlobal {
 		return false
 	}
 	return strings.HasSuffix(path, ".go")
 }
-//func writeStats(w io.Writer, sortedStats []stat) int {
-//	for i, stat := range sortedStats {
-//		if i == *top {
-//			return i
-//		}
-//		if stat.Complexity <= *over {
-//			return i
-//		}
-//		fmt.Fprintln(w, stat)
-//	}
-//	return len(sortedStats)
-//}
-//
-//func showAverage(stats []stat, showLabel bool) {
-//	if showLabel {
-//		fmt.Printf("Average: %.3g\n", average(stats))
-//	} else {
-//		fmt.Printf("%.3g\n", average(stats))
-//	}
-//
-//}
 
 func average(stats []stat) float64 {
 	total := 0
