@@ -19,11 +19,9 @@ var (
 )
 
 func getStats(paths []string, skipGodeps bool, skipVendor bool) []stat {
-	if statsGlobal == nil || skipGodepsGlobal != skipGodeps || skipVendorGlobal != skipVendor {
-		skipGodepsGlobal = skipGodeps
-		skipVendorGlobal = skipVendor
-		statsGlobal = analyze(paths)
-	}
+	skipGodepsGlobal = skipGodeps
+	skipVendorGlobal = skipVendor
+	statsGlobal = analyze(paths)
 	sort.Sort(byComplexity(statsGlobal))
 	return statsGlobal
 }
